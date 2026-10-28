@@ -54,10 +54,19 @@ The iPhone X userland (iOS 16.7.16, built for A11 = ARMv8.2) may use instruction
 (LSE atomics `cas`/`ldadd`/`swp`, FP16, ...), which would SIGILL. Not checked: needs the IPSW's dyld shared
 cache. iOS 12 userland targets A7/A8 (ARMv8.0), so it matches this CPU, at the price of an older kernel.
 
-Cheap checks:
-1. On the phone: `grep -m1 Features /proc/cpuinfo` (look for `atomics`, `asimdhp`, `fphp`, `aes`, `sha2`).
-2. On a PC with the IPSW: scan the iPhone X dyld shared cache for LSE opcodes (e.g. with `ipsw dyld`
-   disassembly or `llvm-objdump` over libsystem_pthread / libdispatch / libobjc) and count hits.
+Checks:
+1. DONE on the phone (2026-10-28): `Features : fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid`.
+   No `atomics` (no LSE), no `asimdhp`/`fphp` (no FP16), no `lrcpc`, no `asimdrdm`, no `sha512`/`sm3`/`dcpop`.
+   AES, PMULL, SHA1/SHA2 and CRC32 are present: plain ARMv8.0 + crypto + CRC.
+2. TODO on a PC with the iPhone X IPSW: count LSE atomics in the userland with `tools/scan-lse.py`
+   (tested only on synthetic Mach-O files):
+
+       ipsw dyld split dyld_shared_cache_arm64 /path/to/dsc-out    # needs the cache from the OS cryptex
+       python3 tools/scan-lse.py /path/to/dsc-out /mnt/iosroot/usr /mnt/iosroot/System/Library
+
+   Zero hits: atomics are not an obstacle. Few hits in a handful of libraries: a kernel-side EL0
+   emulation trap for CAS/SWP/LD<op> (LL/SC loop) is feasible. Hundreds of thousands of hits: expect heavy
+   emulation overhead, which favours route B. FP16 and other ARMv8.2 instructions are NOT scanned for.
 
 ## Two routes
 
