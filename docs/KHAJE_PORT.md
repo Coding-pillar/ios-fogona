@@ -38,7 +38,8 @@ needs bootloader support and the phone's own vendor_boot: untested.
 - Framebuffer 0x5c000000 confirmed: text is drawn straight with the right colours, so stride 720*4 and a8r8g8b8 are right.
 - Console was clipped on the right (it was laid out for 1080 px). Fixed: font scale 2, wrapping, top margin below the camera hole.
 - UFS host at 0x04804000 works with the unchanged driver: HCI ver 0x300, host enabled, TUR/CAP/READ ok, MBR 0xAA55, GPT found (3 entries) on LUN 0.
-- Open question: LUN 0 reports lastlba 0xFFF with only 3 GPT entries, so it is a small LUN, not the one holding userdata/super. The driver hard-codes LUN 0.
+- LUN 0 is a small unit (lastlba 0xFFF, 3 GPT entries). From the phone's `/dev/block/by-name` (sdX = LUN X-a): boot_a, init_boot_a, vendor_boot_a are on sdd (LUN 3); super (sde25) and userdata (sde27) are on sde (LUN 4). The UFS probe now scans LUN 0-5 and lists the big partitions of LUN 4 (`-DUFS_SHOW_LUN=n` to change).
+- An SD card is present (mmcblk1p1, sdhci@4784000), a possible home for the iOS root instead of userdata (needs an MMC driver in XNU).
 - Not yet run: MMU, PSCI, GIC/timer and SMP checks (build with `EXTRA_CFLAGS=-DSHIM_DIAG ./build-khaje.sh`; this replaces the UFS probe).
 
 ## TODO before XNU boots

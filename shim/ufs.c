@@ -4,7 +4,7 @@
  * Runs with the MMU off (all memory Device, so DMA is coherent with no cache
  * maintenance). Dumps the UFSHCI registers ABL left behind and, if the host
  * is enabled and the link is up, points the transfer request list at our own
- * buffers and issues READ-ONLY SCSI commands on LUN 0. Nothing is ever
+ * buffers and issues READ-ONLY SCSI commands on LUN 0-5. Nothing is ever
  * written to the device: there is no SCSI WRITE in this file.
  *
  * Register layout and descriptor formats: JEDEC UFSHCI (JESD223).
@@ -31,6 +31,9 @@
 #define HCS_UCRDY	(1u << 3)
 
 #define BLOCK		4096u
+#ifndef UFS_SHOW_LUN
+#define UFS_SHOW_LUN	4	/* LUN whose big partitions are listed */
+#endif
 
 static inline uint32_t ufs_rd(uint32_t off) { return *(volatile uint32_t *)(UFS_BASE + off); }
 static inline void ufs_wr(uint32_t off, uint32_t v) { *(volatile uint32_t *)(UFS_BASE + off) = v; }
@@ -135,11 +138,13 @@ static uint32_t scsi(uint8_t lun, const uint8_t *cdb, unsigned cdb_len, void *bu
 	return *status_out ? 4 : 0;
 }
 
+static uint8_t cur_lun;
+
 static uint32_t read_blocks(uint32_t lba, uint32_t count, void *buf)
 {
 	uint8_t cdb[10] = { 0x28, 0, lba >> 24, lba >> 16, lba >> 8, lba, 0, count >> 8, count, 0 };
 	uint32_t ocs, st;
-	return scsi(0, cdb, sizeof(cdb), buf, count * BLOCK, &ocs, &st);
+	return scsi(cur_lun, cdb, sizeof(cdb), buf, count * BLOCK, &ocs, &st);
 }
 
 static uint64_t le64(const uint8_t *p)
@@ -228,39 +233,42 @@ void test_ufs(void)
 		return;
 	}
 
-	uint32_t ocs = 0, st = 0, rc;
-	static const uint8_t tur[6] = { 0x00 };
-	/* A first command may report a unit attention; retry a few times. */
-	for (int i = 0; i < 3; i++) {
-		rc = scsi(0, tur, sizeof(tur), 0, 0, &ocs, &st);
-		con_hex2("UFS TUR", "rc=", rc, "ocs/st=", ocs << 8 | st);
-		if (!rc)
-			break;
+	/*
+	 * Scan LUN 0..5 (sda..sdf on the phone). On fogona userdata/super are on
+	 * LUN 4 (sde), boot/vendor_boot on LUN 3 (sdd); LUN 0 is a small unit.
+	 * One line per LUN, then the big partitions of UFS_SHOW_LUN.
+	 */
+	for (uint8_t lun = 0; lun < 6; lun++) {
+		char l[5] = { 'L', 'U', 'N', '0' + lun, 0 };
+		uint32_t ocs = 0, st = 0, rc = 1;
+		static const uint8_t tur[6] = { 0x00 };
+		static const uint8_t cap10[10] = { 0x25 };	/* READ CAPACITY(10) */
+		static const uint8_t rd10[10] = { 0x28, 0, 0, 0, 0, 0, 0, 0, 2, 0 };
+
+		cur_lun = lun;
+		for (int i = 0; i < 3 && rc; i++)	/* first command may report a unit attention */
+			rc = scsi(lun, tur, sizeof(tur), 0, 0, &ocs, &st);
+		if (rc) {
+			con_hex2(l, "TUR rc=", rc, "st=", ocs << 8 | st);
+			continue;
+		}
+		rc = scsi(lun, cap10, sizeof(cap10), data, 8, &ocs, &st);
+		if (rc) {
+			con_hex2(l, "CAP rc=", rc, "st=", ocs << 8 | st);
+			continue;
+		}
+		uint32_t last = be32(data), blk = be32(data + 4);
+		rc = scsi(lun, rd10, sizeof(rd10), data, 2 * BLOCK, &ocs, &st);
+		const uint8_t *gpt = data + BLOCK;
+		int ok = !rc && gpt[0] == 'E' && gpt[1] == 'F' && gpt[2] == 'I';
+		uint32_t nent = ok ? (gpt[80] | gpt[81] << 8 | gpt[82] << 16) : 0;
+		con_hex2(l, "last=", last, "blk=", blk);
+		con_hex2(" gpt", "ents=", nent, "rc=", rc);
+		if (lun == UFS_SHOW_LUN && ok) {
+			uint32_t esz = gpt[84] | gpt[85] << 8, elba = gpt[72] | gpt[73] << 8;
+			if (esz == 128 && nent <= 128)
+				list_partitions(elba, nent);
+		}
 	}
-
-	static const uint8_t cap10[10] = { 0x25 };	/* READ CAPACITY(10) */
-	rc = scsi(0, cap10, sizeof(cap10), data, 8, &ocs, &st);
-	con_hex2("UFS CAP", "rc=", rc, "ocs/st=", ocs << 8 | st);
-	if (!rc)
-		con_hex2("UFS LUN0", "lastlba=", be32(data), "blk=", be32(data + 4));
-
-	/* READ(10) LBA 0, 2 blocks: protective MBR and the GPT header. */
-	static const uint8_t rd10[10] = { 0x28, 0, 0, 0, 0, 0, 0, 0, 2, 0 };
-	rc = scsi(0, rd10, sizeof(rd10), data, 2 * BLOCK, &ocs, &st);
-	con_hex2("UFS READ", "rc=", rc, "ocs/st=", ocs << 8 | st);
-	if (rc)
-		return;
-	con_hex2("UFS MBR", "sig=", data[510] | data[511] << 8, "type=", data[450]);
-	const uint8_t *gpt = data + BLOCK;
-	char sig[9];
-	for (int i = 0; i < 8; i++)
-		sig[i] = (gpt[i] >= 32 && gpt[i] < 127) ? gpt[i] : '.';
-	sig[8] = 0;
-	con_str("UFS GPT", sig);
-	uint32_t nent = gpt[80] | gpt[81] << 8 | gpt[82] << 16, esz = gpt[84] | gpt[85] << 8;
-	uint32_t elba = gpt[72] | gpt[73] << 8;
-	con_hex2("UFS GPT", "entries=", nent, "lba=", elba);
-	if (esz != 128 || nent > 128)
-		return;
-	list_partitions(elba, nent);
+	cur_lun = 0;
 }
