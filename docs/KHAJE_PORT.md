@@ -42,6 +42,13 @@ needs bootloader support and the phone's own vendor_boot: untested.
 - An SD card is present (mmcblk1p1, sdhci@4784000), a possible home for the iOS root instead of userdata (needs an MMC driver in XNU).
 - Not yet run: MMU, PSCI, GIC/timer and SMP checks (build with `EXTRA_CFLAGS=-DSHIM_DIAG ./build-khaje.sh`; this replaces the UFS probe).
 
+### Result 2 (UFS scan + diagnostics hang)
+
+- UFS scan (LUN = sdX letter - 'a'): LUN0 16 MiB, LUN1/2 8 MiB (3 GPT entries each), LUN3 ~0.9 GiB (25 entries, boot/vendor_boot), LUN4 ~57.7 GiB (28 entries: metadata 64 MiB, super 6400 MiB, userdata 52397 MiB, ramdump 128 MiB), LUN5 = copy of LUN3 layout.
+- userdata reads as fs "other": probably dm-default-key metadata encryption, not an empty partition.
+- `-DSHIM_DIAG` build showed a solid red screen: silent hang after the fill/mem tests, i.e. at or after `mmu_enable`. Suspected cause: the shim and XNU use the 16K translation granule (TCR.TG0=16K) and Snapdragon 680 (Kryo 265 = Cortex-A73/A53 class, ARMv8.0) probably does not implement it (ID_AA64MMFR0_EL1.TGran16 == 0). The sweet SoC (A55/A76) does. Unverified: the diag build now prints MIDR/MMFR0/TGran before the MMU and skips the MMU step if TGran16 == 0.
+- If TGran16 is 0, native XNU (16K pages, iOS userland built for 16K) cannot run on this SoC without a very different approach.
+
 ## TODO before XNU boots
 
 - XNU patches 0010/0012/0046/0058/0060/0061 still hard-code 0x9c000000 and 1080x2400.

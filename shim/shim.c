@@ -404,8 +404,33 @@ void shim_main(uint64_t dtb)
 	uint64_t fill_off = ticks_fill(RED);
 	uint64_t mem_off = ticks_mem();
 
+	/*
+	 * Show what the CPU can do BEFORE touching the MMU: XNU needs the 16K
+	 * translation granule (ID_AA64MMFR0_EL1.TGran16 != 0). Cortex-A53/A73
+	 * class cores do not implement it, and enabling a 16K table there hangs
+	 * silently, so skip the MMU test in that case.
+	 */
+	uint64_t mmfr0 = rsr("id_aa64mmfr0_el1");
+	unsigned tg16 = (mmfr0 >> 20) & 0xf;
+	con_clear(RED);
+	con_str("SHIM", "pre-MMU CPU check");
+	con_hex("MIDR", rsr("midr_el1"));
+	con_hex("MMFR0", mmfr0);
+	con_hex2("TGRAN", "16k=", tg16, "4k=", (mmfr0 >> 28) & 0xf);
+	con_hex2("TGRAN", "64k=", (mmfr0 >> 24) & 0xf, "mpidr=", (uint32_t)rsr("mpidr_el1"));
+	delay_ms(1500);
+
 	stage = "mmu enable";
-	int rc = mmu_enable(&mi);
+	int rc;
+	if (tg16 == 0) {
+		con_str("MMU", "16K granule NOT supported: skipped");
+		delay_ms(1500);
+		mi.img_lo = mi.img_hi = mi.ttbr = mi.sctlr_before = mi.sctlr_after = 0;
+		mi.n_l3 = 0;
+		rc = -2;
+	} else {
+		rc = mmu_enable(&mi);
+	}
 
 	stage = "fill on";
 	uint64_t fill_on = rc ? 0 : ticks_fill(RED);
@@ -422,6 +447,7 @@ void shim_main(uint64_t dtb)
 	con_hex("SCTLR0", mi.sctlr_before);
 	con_hex("SCTLR1", mi.sctlr_after);
 	con_hex("TCR", rsr("tcr_el1"));
+	con_hex("MIDR", rsr("midr_el1"));
 	con_hex2("PARANGE", "mmfr0=", rsr("id_aa64mmfr0_el1") & 0xf, "tg16=", (rsr("id_aa64mmfr0_el1") >> 20) & 0xf);
 	con_skip();
 	con_hex("PAR img", mmu_probe((uintptr_t)shim_main));
