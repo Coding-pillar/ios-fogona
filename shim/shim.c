@@ -389,6 +389,7 @@ void shim_main(uint64_t dtb)
 	con_str("LOADER", why);
 	con_skip();
 
+#ifndef SHIM_DIAG
 	/* No payload: probe the internal UFS while the MMU is still off. */
 	stage = "ufs";
 	test_ufs();
@@ -397,6 +398,7 @@ void shim_main(uint64_t dtb)
 	con_str("UFS", "probe done, reset in ~3 min");
 	delay_ms(180000);
 	reset(20);
+#endif	/* SHIM_DIAG: build with EXTRA_CFLAGS=-DSHIM_DIAG to run the MMU/PSCI/GIC/timer checks instead */
 
 	stage = "fill off";
 	uint64_t fill_off = ticks_fill(RED);

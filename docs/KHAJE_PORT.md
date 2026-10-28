@@ -32,6 +32,15 @@ differs from the defaults: check the first lines it prints and `FB_*` in
 console.h. Hold Power + Volume down to leave. `fastboot boot` with a v4 image
 needs bootloader support and the phone's own vendor_boot: untested.
 
+### Result (2026-10-27, from a photo of the screen)
+
+- `fastboot boot out/shim-boot-v4.img` works on the stock bootloader: header v4 is accepted, the shim runs.
+- Framebuffer 0x5c000000 confirmed: text is drawn straight with the right colours, so stride 720*4 and a8r8g8b8 are right.
+- Console was clipped on the right (it was laid out for 1080 px). Fixed: font scale 2, wrapping, top margin below the camera hole.
+- UFS host at 0x04804000 works with the unchanged driver: HCI ver 0x300, host enabled, TUR/CAP/READ ok, MBR 0xAA55, GPT found (3 entries) on LUN 0.
+- Open question: LUN 0 reports lastlba 0xFFF with only 3 GPT entries, so it is a small LUN, not the one holding userdata/super. The driver hard-codes LUN 0.
+- Not yet run: MMU, PSCI, GIC/timer and SMP checks (build with `EXTRA_CFLAGS=-DSHIM_DIAG ./build-khaje.sh`; this replaces the UFS probe).
+
 ## TODO before XNU boots
 
 - XNU patches 0010/0012/0046/0058/0060/0061 still hard-code 0x9c000000 and 1080x2400.

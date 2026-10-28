@@ -5,10 +5,12 @@
 #include "console.h"
 #include "font.h"
 
-#define SCALE		3
+#define SCALE		2
 #define CH_W		(8 * SCALE)
 #define CH_H		(16 * SCALE)
-#define MARGIN		24
+#define MARGIN		16
+#define MARGIN_TOP	96	/* clear the front-camera punch hole */
+#define MAXCOL		((FB_W - 2 * MARGIN) / CH_W)
 #define LABEL_COLS	8
 
 volatile uint32_t *con_fb = (volatile uint32_t *)FB_BASE;
@@ -31,7 +33,7 @@ static void put_char(int col, char ch, uint32_t fg)
 	if (ch < 0x20 || ch > 0x7e)
 		ch = '?';
 	const unsigned char *g = font8x16[ch - 0x20];
-	int x0 = MARGIN + col * CH_W, y0 = MARGIN + row * CH_H;
+	int x0 = MARGIN + col * CH_W, y0 = MARGIN_TOP + row * CH_H;
 	if (x0 + CH_W > FB_W || y0 + CH_H > FB_H)
 		return;
 	for (int gy = 0; gy < 16; gy++)
@@ -48,8 +50,13 @@ static void put_char(int col, char ch, uint32_t fg)
 
 static int put_str(int col, const char *s, uint32_t fg)
 {
-	while (*s)
+	while (*s) {
+		if (col >= MAXCOL) {	/* wrap long lines under the label column */
+			row++;
+			col = LABEL_COLS;
+		}
 		put_char(col++, *s++, fg);
+	}
 	return col;
 }
 
