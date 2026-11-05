@@ -7,8 +7,8 @@ index 69b13f9..ad6d304 100644
  MACHINE_FLAGS_ARM64_BCM2837 = -DARM64_BOARD_CONFIG_BCM2837
  MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_SWEET                -march=armv8.2-a+crypto
 +ifeq ($(SWEET_VARIANT),KHAJE)
-+# Cortex-A53/A73 class: ARMv8.0 + AES/SHA + CRC32, no LSE atomics, no PAN, no 16K granule
-+MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_SWEET -DKHAJE -march=armv8-a+crypto+crc
++# Cortex-A53/A73 class: ARMv8.0 + AES/SHA + CRC32 (-mcpu, not -march: Apple clang keeps Apple CPU features such as LSE with -arch arm64), no LSE atomics, no PAN, no 16K granule
++MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_SWEET -DKHAJE -mcpu=cortex-a53
 +endif
  
  
