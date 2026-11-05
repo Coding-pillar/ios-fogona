@@ -12,6 +12,9 @@ on:
       machine_config:
         description: xnu MACHINE_CONFIG
         default: SWEET
+      variant:
+        description: "SWEET (16K granule, ARMv8.2) or KHAJE (Moto G Play 2024: 4K granule, ARMv8.0)"
+        default: SWEET
       keep_going:
         description: make -k (collect all compile errors in one run)
         default: "true"
@@ -19,6 +22,7 @@ on:
     branches: [main]
     paths:
       - "xnu/patches/**"
+      - "xnu/patches-khaje/**"
       - ".github/workflows/xnu.yml"
 
 concurrency:
@@ -31,6 +35,7 @@ env:
   MACOS_VERSION: ${{ inputs.macos_version || '13.5' }}
   KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
   MACHINE_CONFIG: ${{ inputs.machine_config || 'SWEET' }}
+  SWEET_VARIANT: ${{ inputs.variant || 'SWEET' }}
 
 jobs:
   build:
@@ -48,6 +53,8 @@ jobs:
           git -C dxb checkout -q FETCH_HEAD
           # 12.5-14.3 use the top-level patches dir; ours go next to blacktop's
           cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
+          # KHAJE variant: extra patches on top (4K granule, ARMv8.0); plain SWEET builds skip them
+          if [ "$SWEET_VARIANT" = KHAJE ]; then cp xnu/patches-khaje/*.patch dxb/patches/; fi
           # libfirehose_kernel is built arm64e-only; the SWEET kernel is plain arm64
           sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
           grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
