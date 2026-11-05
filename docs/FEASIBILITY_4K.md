@@ -107,3 +107,12 @@ Mixed (8796 kernel + iOS 12 userland) is unlikely to work: kernel/userland ABI d
 
 Sources: https://github.com/apple-oss-distributions/xnu (tags xnu-4903.270.47, xnu-8796.141.3),
 https://developer.apple.com/forums/thread/47532
+
+## Update 2026-11-04 (later): ios-sailfish (joranv1/ios-sailfish, Pixel 1 / Snapdragon 821)
+
+- Runs the **unmodified iPhone 8 iOS 16.7.16 userland on an ARMv8.0 CPU** (Kryo, no LSE, no PAN). Its README states the
+  userland is ARMv8.0-clean, which removes most of Finding 3 for iPhone 8 / A11 userland (still worth one scan-lse run).
+- Its Kryo implements the **16K granule** ("16K pages"), so it does not solve the 4K problem; fogona still needs the 4K path.
+- Its patch 0080 (ARMv8.0 baseline) found: use `-mcpu=...`, not `-march=...` (Apple clang with `-arch arm64` keeps LSE), and the
+  kernel commpage `casa` (pfz_trylock_*) must become LL/SC. Both are now in xnu/patches-khaje (0090, 0091).
+- It is a fork of ios-sweet with ~180 patches (GPU, Wi-Fi, touch, UFS root in userdata): a reference for later driver work.
