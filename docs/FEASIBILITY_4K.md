@@ -68,6 +68,23 @@ Checks:
    emulation trap for CAS/SWP/LD<op> (LL/SC loop) is feasible. Hundreds of thousands of hits: expect heavy
    emulation overhead, which favours route B. FP16 and other ARMv8.2 instructions are NOT scanned for.
 
+## Update 2026-11-04: precedent inside Apple's own tree, and what HakiOS targets
+
+- **xnu-8796 ships a 4K, ARMv8.0 machine config.** `SUPPORTED_ARM64_MACHINE_CONFIGS = BCM2837 T6000 T8101 T8103 VMAPPLE`
+  (makedefs/MakeInc.def). `pexpert/pexpert/arm64/BCM2837.h` (Raspberry Pi 3, Cortex-A53) does NOT define `__ARM_16K_PG__`
+  (only H13.h does), sets `__ARM64_PMAP_SUBPAGE_L1__ 1`, and has no PAN. So a 4K-granule arm64 kernel is a supported
+  build of this exact source tree, and the A53 is the same core class as your Kryo Silver. ios-sweet's SWEET header
+  was modelled on BCM2837 ("Generic ARM like BCM2837") and then added 16K pages and PAN: for Khaje, start from the BCM2837
+  settings instead (keep GICv3/PSCI/timer parts from sweet; drop 16K and PAN). Caveat: that config is Apple's Pi bring-up for
+  macOS-style userland, not iPhone userland.
+- **HakiOS (oosexgang/hakios-xnu-kernel, `main` at 87bf485) targets ARMv8.2 cores.** Its BCM2837-derived patch says the cores it
+  runs on are "Cortex-A55/A78, QEMU cortex-a76 ... ARMv8.2" and turns PAN on. Listed devices: POCO X5 Pro (sc7280, Kryo 670 =
+  A78/A55) and QEMU. Its `mtk` branch has a MediaTek mt6768 (Cortex-A75/A55) device. No A53/ARMv8.0 device, no mention of 4K or
+  16K granules in its docs, and no Moto G Play / SM6225. It does not solve the granule problem; it confirms nobody has run iOS 16
+  userland on ARMv8.0 hardware there.
+- **HakiOS dual boot**: U-Boot in `boot_a`, Android untouched in slot b, `userdata-carve.py --wipe` carves a `darwin` volume
+  at the end of userdata (wipes userdata, ~12 GB HFS+ data volume). Worth copying the design later; it is not a read-only test.
+
 ## Two routes
 
 A. xnu-8796 (iOS 16): keep ios-sweet's patch series. Needs: 4K machine config, shim mmu rewrite,
