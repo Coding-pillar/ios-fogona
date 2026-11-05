@@ -20,7 +20,7 @@ $CC $CFLAGS -static -T shim.ld -Wl,--build-id=none -Wl,--no-warn-rwx-segments -W
 	out/start.o out/shim.o out/console.o out/mmu.o out/fdt.o out/loader.o out/ufs.o -o out/shim.elf
 $OBJCOPY -O binary out/shim.elf out/Image
 # ABL copies the file; pad to image_size so .bss/stacks exist as zeroed bytes.
-size=$($NM out/shim.elf | awk '$3=="_end"{print strtonum("0x"$1)}')
+size=$((16#$($NM out/shim.elf | awk '$3=="_end"{print $1}')))	# POSIX awk: no strtonum
 truncate -s "$size" out/Image
 # Optional $1 = xnu payload (tools/mkpayload.py) packed as the boot ramdisk.
 # Without it the image is the diagnostics-only shim (no ramdisk at all).
