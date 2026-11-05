@@ -12,12 +12,12 @@
 #include "loader.h"
 #include "ufs.h"
 
-#define IMEM_RESTART_REASON	0x146aa65cUL	/* qcom,msm-imem restart_reason@65c */
+#define IMEM_RESTART_REASON	0x0c12565cUL	/* qcom,msm-imem@c125000 restart_reason@65c (fogona live FDT) */
 #define RESTART_BOOTLOADER	0x77665500U
-#define PSHOLD			0x0c264000UL
+#define PSHOLD			0x0440b000UL	/* soc/restart@440b000 */
 
-#define GICD_BASE		0x17a00000UL
-#define GICR_BASE		0x17a60000UL
+#define GICD_BASE		0x0f200000UL
+#define GICR_BASE		0x0f300000UL
 #define GICR_SIZE		0x100000UL
 #define GICR_PE_SIZE		0x20000UL
 #define GICR_TYPER		0x08
@@ -57,6 +57,12 @@ static inline void wr32(uintptr_t a, uint32_t v) { *(volatile uint32_t *)a = v; 
 static inline void wr8(uintptr_t a, uint8_t v) { *(volatile uint8_t *)a = v; }
 
 extern char secondary_entry[];
+
+/* Khaje (SM6225): Aff0 = core 0-3 of cluster 0, then Aff1 = 1, Aff0 = 0-3 */
+static inline uint64_t cpu_mpidr(unsigned i)
+{
+	return i < 4 ? i : 0x100 + (i - 4);
+}
 
 static const char *stage;	/* set at runtime: no absolute pointers in data */
 static volatile uint64_t sec_mpidr[NR_CPUS];
@@ -190,12 +196,12 @@ static void __attribute__((unused)) test_smp(void)
 	int64_t ret[NR_CPUS];
 
 	for (int i = 1; i < NR_CPUS; i++)
-		ret[i] = smc(PSCI_CPU_ON, (uint64_t)i << 8, (uintptr_t)secondary_entry, i);
+		ret[i] = smc(PSCI_CPU_ON, cpu_mpidr(i), (uintptr_t)secondary_entry, i);
 	delay_ms(500);
 	for (int i = 1; i < NR_CPUS; i++) {
 		char label[] = "CPU0";
 		label[3] = '0' + i;
-		if (((uint64_t)i << 8) == self)
+		if (cpu_mpidr(i) == self)
 			con_str(label, "is boot cpu");
 		else
 			con_hex2(label, "ret=", (uint32_t)ret[i], "mpidr=",
@@ -383,6 +389,7 @@ void shim_main(uint64_t dtb)
 	con_str("LOADER", why);
 	con_skip();
 
+#ifndef SHIM_DIAG
 	/* No payload: probe the internal UFS while the MMU is still off. */
 	stage = "ufs";
 	test_ufs();
@@ -391,13 +398,39 @@ void shim_main(uint64_t dtb)
 	con_str("UFS", "probe done, reset in ~3 min");
 	delay_ms(180000);
 	reset(20);
+#endif	/* SHIM_DIAG: build with EXTRA_CFLAGS=-DSHIM_DIAG to run the MMU/PSCI/GIC/timer checks instead */
 
 	stage = "fill off";
 	uint64_t fill_off = ticks_fill(RED);
 	uint64_t mem_off = ticks_mem();
 
+	/*
+	 * Show what the CPU can do BEFORE touching the MMU: XNU needs the 16K
+	 * translation granule (ID_AA64MMFR0_EL1.TGran16 != 0). Cortex-A53/A73
+	 * class cores do not implement it, and enabling a 16K table there hangs
+	 * silently, so skip the MMU test in that case.
+	 */
+	uint64_t mmfr0 = rsr("id_aa64mmfr0_el1");
+	unsigned tg16 = (mmfr0 >> 20) & 0xf;
+	con_clear(RED);
+	con_str("SHIM", "pre-MMU CPU check");
+	con_hex("MIDR", rsr("midr_el1"));
+	con_hex("MMFR0", mmfr0);
+	con_hex2("TGRAN", "16k=", tg16, "4k=", (mmfr0 >> 28) & 0xf);
+	con_hex2("TGRAN", "64k=", (mmfr0 >> 24) & 0xf, "mpidr=", (uint32_t)rsr("mpidr_el1"));
+	delay_ms(1500);
+
 	stage = "mmu enable";
-	int rc = mmu_enable(&mi);
+	int rc;
+	if (tg16 == 0) {
+		con_str("MMU", "16K granule NOT supported: skipped");
+		delay_ms(1500);
+		mi.img_lo = mi.img_hi = mi.ttbr = mi.sctlr_before = mi.sctlr_after = 0;
+		mi.n_l3 = 0;
+		rc = -2;
+	} else {
+		rc = mmu_enable(&mi);
+	}
 
 	stage = "fill on";
 	uint64_t fill_on = rc ? 0 : ticks_fill(RED);
@@ -414,6 +447,7 @@ void shim_main(uint64_t dtb)
 	con_hex("SCTLR0", mi.sctlr_before);
 	con_hex("SCTLR1", mi.sctlr_after);
 	con_hex("TCR", rsr("tcr_el1"));
+	con_hex("MIDR", rsr("midr_el1"));
 	con_hex2("PARANGE", "mmfr0=", rsr("id_aa64mmfr0_el1") & 0xf, "tg16=", (rsr("id_aa64mmfr0_el1") >> 20) & 0xf);
 	con_skip();
 	con_hex("PAR img", mmu_probe((uintptr_t)shim_main));

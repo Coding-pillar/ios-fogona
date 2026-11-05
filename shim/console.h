@@ -1,9 +1,9 @@
 #pragma once
 #include <stdint.h>
 
-#define FB_BASE		0x9c000000UL	/* reserved-memory cont_splash_region */
-#define FB_W		1080
-#define FB_H		2400
+#define FB_BASE		0x5c000000UL	/* fogona: splash_region@5c000000, 0xf00000 (iomem: reserved 5c000000-5cffffff) */
+#define FB_W		720		/* Moto G Play 2024 panel; verify stride on first boot */
+#define FB_H		1600
 #define FB_STRIDE	(FB_W * 4)	/* a8r8g8b8, matches mainline simplefb */
 
 #define RED	0xffff0000U
