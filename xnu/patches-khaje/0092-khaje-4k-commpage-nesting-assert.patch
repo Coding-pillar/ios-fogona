@@ -1,0 +1,18 @@
+diff --git a/osfmk/arm/pmap/pmap.c b/osfmk/arm/pmap/pmap.c
+--- a/osfmk/arm/pmap/pmap.c	2026-11-04 20:49:13.896429715 -0800
++++ b/osfmk/arm/pmap/pmap.c	2026-11-04 20:49:13.925173659 -0800
+@@ -10981,11 +10981,14 @@
+  */
+ 
+ #elif (ARM_PGSHIFT == 12)
++#if !defined(KHAJE)
+ /**
+  * Ensure that 64-bit devices using 4K pages can nest the commpage completely
+  * above the maximum userspace VA.
+  */
+ static_assert((_COMM_PAGE64_BASE_ADDRESS & ~ARM_TT_L1_OFFMASK) >= MACH_VM_MAX_ADDRESS);
++#endif /* !KHAJE: this build uses the macOS-style VM limits (like the 16K SWEET build), where the
++        * commpage sits inside the user VA range and is protected by vm_reserved_regions[] */
+ #else
+ #error Nested shared page mapping is unsupported on this config
+ #endif
