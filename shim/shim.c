@@ -405,10 +405,9 @@ void shim_main(uint64_t dtb)
 	uint64_t mem_off = ticks_mem();
 
 	/*
-	 * Show what the CPU can do BEFORE touching the MMU: XNU needs the 16K
-	 * translation granule (ID_AA64MMFR0_EL1.TGran16 != 0). Cortex-A53/A73
-	 * class cores do not implement it, and enabling a 16K table there hangs
-	 * silently, so skip the MMU test in that case.
+	 * Show what the CPU can do BEFORE touching the MMU: The shim MMU uses
+	 * the 4K granule (ID_AA64MMFR0_EL1.TGran4 == 0); this CPU has no 16K
+	 * granule (TGran16 == 0), and enabling a 16K table there hangs silently.
 	 */
 	uint64_t mmfr0 = rsr("id_aa64mmfr0_el1");
 	unsigned tg16 = (mmfr0 >> 20) & 0xf;
@@ -422,8 +421,8 @@ void shim_main(uint64_t dtb)
 
 	stage = "mmu enable";
 	int rc;
-	if (tg16 == 0) {
-		con_str("MMU", "16K granule NOT supported: skipped");
+	if (((mmfr0 >> 28) & 0xf) == 0xf) {	/* TGran4: 0 = implemented, 0xf = not */
+		con_str("MMU", "4K granule NOT supported: skipped");
 		delay_ms(1500);
 		mi.img_lo = mi.img_hi = mi.ttbr = mi.sctlr_before = mi.sctlr_after = 0;
 		mi.n_l3 = 0;

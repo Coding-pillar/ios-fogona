@@ -2,6 +2,8 @@
 # Build the shim for the Moto G Play 2024 (fogona, SM6225) and wrap it in a boot.img header v4.
 # No DTB is packed: the bootloader hands the shim the live FDT. Flash nothing: use `fastboot boot`.
 set -euo pipefail
+# resolve the optional payload path before cd-ing into shim/ (it is relative to where you ran this)
+if [ -n "${1:-}" ]; then PAYLOAD=$(realpath "$1"); else PAYLOAD=; fi
 cd "$(dirname "$0")"
 CC=${CC:-aarch64-linux-gnu-gcc}
 OBJCOPY=${OBJCOPY:-aarch64-linux-gnu-objcopy}
@@ -20,14 +22,15 @@ $CC $CFLAGS -static -T shim.ld -Wl,--build-id=none -Wl,--no-warn-rwx-segments -W
 	out/start.o out/shim.o out/console.o out/mmu.o out/fdt.o out/loader.o out/ufs.o -o out/shim.elf
 $OBJCOPY -O binary out/shim.elf out/Image
 # ABL copies the file; pad to image_size so .bss/stacks exist as zeroed bytes.
-size=$($NM out/shim.elf | awk '$3=="_end"{print strtonum("0x"$1)}')
+size=$((16#$($NM out/shim.elf | awk '$3=="_end"{print $1}')))	# POSIX awk: no strtonum
 truncate -s "$size" out/Image
-# Optional $1 = xnu payload (tools/mkpayload.py) packed as the boot ramdisk.
+# Optional $1 = xnu payload (tools/mkpayload.py), appended to the kernel image after _end.
 # Without it the image is the diagnostics-only shim (no ramdisk at all).
 RD=()
-if [ -n "${1:-}" ]; then
-	cp "$1" out/ramdisk.bin
-	RD=(--ramdisk out/ramdisk.bin)
+if [ -n "$PAYLOAD" ]; then
+	# Appended to the kernel image right after _end: ABL copies the whole file to RAM and the
+	# shim finds the payload there (the ramdisk ABL reports on the Moto is the vendor one).
+	cat "$PAYLOAD" >> out/Image
 fi
 python3 ../tools/mkbootv4.py --kernel out/Image "${RD[@]}" \
 	--cmdline "console=null" -o out/shim-boot-v4.img
