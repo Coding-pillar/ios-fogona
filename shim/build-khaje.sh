@@ -2,6 +2,8 @@
 # Build the shim for the Moto G Play 2024 (fogona, SM6225) and wrap it in a boot.img header v4.
 # No DTB is packed: the bootloader hands the shim the live FDT. Flash nothing: use `fastboot boot`.
 set -euo pipefail
+# resolve the optional payload path before cd-ing into shim/ (it is relative to where you ran this)
+if [ -n "${1:-}" ]; then PAYLOAD=$(realpath "$1"); else PAYLOAD=; fi
 cd "$(dirname "$0")"
 CC=${CC:-aarch64-linux-gnu-gcc}
 OBJCOPY=${OBJCOPY:-aarch64-linux-gnu-objcopy}
@@ -25,8 +27,8 @@ truncate -s "$size" out/Image
 # Optional $1 = xnu payload (tools/mkpayload.py) packed as the boot ramdisk.
 # Without it the image is the diagnostics-only shim (no ramdisk at all).
 RD=()
-if [ -n "${1:-}" ]; then
-	cp "$1" out/ramdisk.bin
+if [ -n "$PAYLOAD" ]; then
+	cp "$PAYLOAD" out/ramdisk.bin
 	RD=(--ramdisk out/ramdisk.bin)
 fi
 python3 ../tools/mkbootv4.py --kernel out/Image "${RD[@]}" \
