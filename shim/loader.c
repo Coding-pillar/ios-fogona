@@ -85,6 +85,25 @@ const char *loader_boot(uintptr_t dtb)
 		return "no initrd in /chosen";
 	con_hex2("INITRD", "lo=", rd_start, "hi=", rd_end);
 
+	/*
+	 * Boot image v4 (Moto): ABL puts the flashed vendor_boot ramdisk in front of ours, so the
+	 * payload is not at initrd-start. Search for the magic on 8-byte boundaries (the payload
+	 * header is 8-aligned; mkbootv4 pads the ramdisk but the vendor part has arbitrary length).
+	 */
+	uint64_t first = *(volatile const uint64_t *)rd_start;
+	uint64_t want;
+	__builtin_memcpy(&want, "SWEETXNU", 8);
+	uint64_t found = 0;
+	for (uint64_t a = (rd_start + 7) & ~7UL; a + 8 <= rd_end; a += 8) {
+		if (*(volatile const uint64_t *)a == want) {
+			found = a;
+			break;
+		}
+	}
+	con_hex2("SCAN", "first8=", first, "found=", found);
+	if (!found)
+		return "no SWEETXNU payload";
+	rd_start = found;
 	const struct payload *p = (const struct payload *)rd_start;
 	if (!magic_ok(p->magic))
 		return "no SWEETXNU payload";
