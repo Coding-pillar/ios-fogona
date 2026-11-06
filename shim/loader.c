@@ -74,39 +74,52 @@ static int magic_ok(const char *m)
 	return 1;
 }
 
+extern char _end[];
+
 typedef void (*xnu_entry_t)(uint64_t boot_args_pa);
 
 const char *loader_boot(uintptr_t dtb)
 {
-	uint64_t rd_start, rd_end;
-
-	if (!fdt_chosen_u64(dtb, "linux,initrd-start", &rd_start) ||
-	    !fdt_chosen_u64(dtb, "linux,initrd-end", &rd_end))
-		return "no initrd in /chosen";
-	con_hex2("INITRD", "lo=", rd_start, "hi=", rd_end);
 
 	/*
-	 * Boot image v4 (Moto): ABL puts the flashed vendor_boot ramdisk in front of ours, so the
-	 * payload is not at initrd-start. Search for the magic on 8-byte boundaries (the payload
-	 * header is 8-aligned; mkbootv4 pads the ramdisk but the vendor part has arbitrary length).
+	 * Moto (boot image v4): the ramdisk range ABL reports is the flashed vendor_boot ramdisk
+	 * (LZ4 legacy, magic 184C2102), not ours. So the payload is appended to the shim image
+	 * itself, right after _end (tools: shim/build-khaje.sh PAYLOAD). The ramdisk scan is kept
+	 * as a fallback for boot flows that do pass it.
 	 */
-	uint64_t first = *(volatile const uint64_t *)rd_start;
+	uint64_t rd_start = 0, rd_end = 0, found = 0;
 	uint64_t want;
 	__builtin_memcpy(&want, "SWEETXNU", 8);
-	uint64_t found = 0;
-	for (uint64_t a = (rd_start + 7) & ~7UL; a + 8 <= rd_end; a += 8) {
-		if (*(volatile const uint64_t *)a == want) {
-			found = a;
-			break;
+
+	uintptr_t tail = ((uintptr_t)_end + 7) & ~7UL;
+	if (*(volatile const uint64_t *)tail == want)
+		found = tail;
+	con_hex2("TAIL", "at=", tail, "found=", found);
+
+	if (!found && fdt_chosen_u64(dtb, "linux,initrd-start", &rd_start) &&
+	    fdt_chosen_u64(dtb, "linux,initrd-end", &rd_end)) {
+		con_hex2("INITRD", "lo=", rd_start, "hi=", rd_end);
+		con_hex("INITRD first8", *(volatile const uint64_t *)rd_start);
+		for (uint64_t a = (rd_start + 7) & ~7UL; a + 8 <= rd_end; a += 8) {
+			if (*(volatile const uint64_t *)a == want) {
+				found = a;
+				break;
+			}
 		}
 	}
-	con_hex2("SCAN", "first8=", first, "found=", found);
 	if (!found)
 		return "no SWEETXNU payload";
 	rd_start = found;
 	const struct payload *p = (const struct payload *)rd_start;
 	if (!magic_ok(p->magic))
 		return "no SWEETXNU payload";
+	/* end of the payload in memory: highest of the segment data and the ADT */
+	rd_end = rd_start + p->adt_off + p->adt_size;
+	for (uint32_t i = 0; i < p->nsegs; i++) {
+		uint64_t e = rd_start + p->segs[i].file_off + p->segs[i].file_size;
+		if (e > rd_end)
+			rd_end = e;
+	}
 	if (p->version != 1 || (p->adt_off & 7) || (rd_start & 7))
 		return "bad payload header";
 

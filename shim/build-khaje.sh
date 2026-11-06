@@ -24,12 +24,13 @@ $OBJCOPY -O binary out/shim.elf out/Image
 # ABL copies the file; pad to image_size so .bss/stacks exist as zeroed bytes.
 size=$((16#$($NM out/shim.elf | awk '$3=="_end"{print $1}')))	# POSIX awk: no strtonum
 truncate -s "$size" out/Image
-# Optional $1 = xnu payload (tools/mkpayload.py) packed as the boot ramdisk.
+# Optional $1 = xnu payload (tools/mkpayload.py), appended to the kernel image after _end.
 # Without it the image is the diagnostics-only shim (no ramdisk at all).
 RD=()
 if [ -n "$PAYLOAD" ]; then
-	cp "$PAYLOAD" out/ramdisk.bin
-	RD=(--ramdisk out/ramdisk.bin)
+	# Appended to the kernel image right after _end: ABL copies the whole file to RAM and the
+	# shim finds the payload there (the ramdisk ABL reports on the Moto is the vendor one).
+	cat "$PAYLOAD" >> out/Image
 fi
 python3 ../tools/mkbootv4.py --kernel out/Image "${RD[@]}" \
 	--cmdline "console=null" -o out/shim-boot-v4.img
